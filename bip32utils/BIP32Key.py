@@ -43,12 +43,11 @@ class BIP32Key(object):
         I = hmac.new(b"Bitcoin seed", entropy, hashlib.sha512).digest()
         Il, Ir = I[:32], I[32:]
         # FIXME test Il for 0 or less than SECP256k1 prime field order
-        key = BIP32Key(secret=Il, chain=Ir, depth=0, index=0, fpr='\0\0\0\0', public=False, testnet=testnet)
+        key = BIP32Key(secret=Il, chain=Ir, depth=0, index=0, fpr=b'\0\0\0\0', public=False, testnet=testnet)
         if public:
             key.SetPublic()
         return key
 
-    # TODO testnet support for this function
     @staticmethod
     def fromExtendedKey(xkey, public=False):
         """
@@ -64,9 +63,17 @@ class BIP32Key(object):
         # Verify address version/type
         version = raw[:4]
         if version == EX_MAIN_PRIVATE:
-            keytype = 'xprv'
+            is_testnet = False
+            is_pubkey = False
+        elif version == EX_TEST_PRIVATE:
+            is_testnet = True
+            is_pubkey = False
         elif version == EX_MAIN_PUBLIC:
-            keytype = 'xpub'
+            is_testnet = False
+            is_pubkey = True
+        elif version == EX_TEST_PUBLIC:
+            is_testnet = True
+            is_pubkey = True
         else:
             raise ValueError("unknown extended key version")
 
@@ -78,7 +85,7 @@ class BIP32Key(object):
         secret = raw[45:78]
 
         # Extract private key or public key point
-        if keytype == 'xprv':
+        if not is_pubkey:
             secret = secret[1:]
         else:
             # Recover public curve point from compressed key
@@ -91,8 +98,7 @@ class BIP32Key(object):
             point = ecdsa.ellipticcurve.Point(SECP256k1.curve, x, y)
             secret = ecdsa.VerifyingKey.from_public_point(point, curve=SECP256k1)
 
-        is_pubkey = (keytype == 'xpub')
-        key = BIP32Key(secret=secret, chain=chain, depth=depth, index=child, fpr=fpr, public=is_pubkey)
+        key = BIP32Key(secret=secret, chain=chain, depth=depth, index=child, fpr=fpr, public=is_pubkey, testnet=is_testnet)
         if not is_pubkey and public:
             key = key.SetPublic()
         return key
@@ -295,14 +301,14 @@ class BIP32Key(object):
             version = EX_MAIN_PRIVATE if private else EX_MAIN_PUBLIC
         else:
             version = EX_TEST_PRIVATE if private else EX_TEST_PUBLIC
-        depth = chr(self.depth)
+        depth = bytes(bytearray([self.depth]))
         fpr = self.parent_fpr
         child = struct.pack('>L', self.index)
         chain = self.C
         if self.public is True or private is False:
             data = self.PublicKey()
         else:
-            data = '\x00' + self.PrivateKey()
+            data = b'\x00' + self.PrivateKey()
         raw = version+depth+fpr+child+chain+data
         if not encoded:
             return raw
